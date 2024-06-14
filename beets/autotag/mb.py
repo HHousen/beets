@@ -87,6 +87,7 @@ RELEASE_INCLUDES = [
     "isrcs",
     "url-rels",
     "release-rels",
+    "release-group-level-rels",
 ]
 BROWSE_INCLUDES = [
     "artist-credits",
@@ -104,6 +105,8 @@ if "work-level-rels" in musicbrainzngs.VALID_INCLUDES["recording"]:
     TRACK_INCLUDES += ["work-level-rels", "artist-rels"]
 if "genres" in musicbrainzngs.VALID_INCLUDES["recording"]:
     RELEASE_INCLUDES += ["genres"]
+if "tags" in musicbrainzngs.VALID_INCLUDES["recording"]:
+    RELEASE_INCLUDES += ["tags"]
 
 
 def track_url(trackid: str) -> str:
@@ -618,14 +621,27 @@ def album_info(release: Dict) -> beets.autotag.hooks.AlbumInfo:
             for genre, _count in sorted(genres.items(), key=lambda g: -g[1])
         )
 
+    if config["musicbrainz"]["tags"]:
+        sources = [
+            release["release-group"].get("tag-list", []),
+            release.get("tag-list", []),
+        ]
+        tags: Counter[str] = Counter()
+        for source in sources:
+            for tagitem in source:
+                tags[tagitem["name"]] += int(tagitem["count"])
+        info.mb_tags = "; ".join(
+            tag
+            for tag, _count in sorted(tags.items(), key=lambda g: -g[1])
+        )
+
     # We might find links to external sources (Discogs, Bandcamp, ...)
     if any(
         config["musicbrainz"]["external_ids"].get().values()
-    ) and release.get("url-relation-list"):
-        discogs_url, bandcamp_url, spotify_url = None, None, None
-        deezer_url, beatport_url, tidal_url = None, None, None
+    ):
         fetch_discogs, fetch_bandcamp, fetch_spotify = False, False, False
         fetch_deezer, fetch_beatport, fetch_tidal = False, False, False
+        fetch_rym, fetch_genius = False, False
 
         if config["musicbrainz"]["external_ids"]["discogs"].get():
             fetch_discogs = True
@@ -639,45 +655,93 @@ def album_info(release: Dict) -> beets.autotag.hooks.AlbumInfo:
             fetch_beatport = True
         if config["musicbrainz"]["external_ids"]["tidal"].get():
             fetch_tidal = True
+        if config["musicbrainz"]["external_ids"]["rym"].get():
+            fetch_rym = True
+        if config["musicbrainz"]["external_ids"]["genius"].get():
+            fetch_genius = True
+        
+        if release["release-group"].get("url-relation-list"):
+            discogs_url, genius_url, rym_url = None, None, None
+            release_group_all_url_targets = []
+            for url in release["release-group"]["url-relation-list"]:
+                release_group_all_url_targets.append(url["target"])
+                if fetch_discogs and "discogs" in url["target"]:
+                    log.debug("Found link to Discogs release group via MusicBrainz")
+                    discogs_url = url["target"]
+                if fetch_rym and "rateyourmusic.com" in url["target"]:
+                    log.debug("Found link to RYM release group via MusicBrainz")
+                    rym_url = url["target"]
+                if fetch_genius and "genius.com" in url["target"]:
+                    log.debug("Found link to Genius release group via MusicBrainz")
+                    genius_url = url["target"]
+            
+            if discogs_url:
+                info.release_group_discogs_url = discogs_url.split("discogs.com", 1)[-1]
+            if rym_url:
+                info.release_group_rym_url = rym_url.split("rateyourmusic.com", 1)[-1]
+            if genius_url:
+                info.release_group_genius_url = genius_url.split("genius.com", 1)[-1]
+            
+            info.release_group_all_urls = release_group_all_url_targets
 
-        for url in release["url-relation-list"]:
-            if fetch_discogs and url["type"] == "discogs":
-                log.debug("Found link to Discogs release via MusicBrainz")
-                discogs_url = url["target"]
-            if fetch_bandcamp and "bandcamp.com" in url["target"]:
-                log.debug("Found link to Bandcamp release via MusicBrainz")
-                bandcamp_url = url["target"]
-            if fetch_spotify and "spotify.com" in url["target"]:
-                log.debug("Found link to Spotify album via MusicBrainz")
-                spotify_url = url["target"]
-            if fetch_deezer and "deezer.com" in url["target"]:
-                log.debug("Found link to Deezer album via MusicBrainz")
-                deezer_url = url["target"]
-            if fetch_beatport and "beatport.com" in url["target"]:
-                log.debug("Found link to Beatport release via MusicBrainz")
-                beatport_url = url["target"]
-            if fetch_tidal and "tidal.com" in url["target"]:
-                log.debug("Found link to Tidal release via MusicBrainz")
-                tidal_url = url["target"]
+        if release.get("url-relation-list"):
+            discogs_url, bandcamp_url, spotify_url = None, None, None
+            deezer_url, beatport_url, tidal_url = None, None, None
+            rym_url, genius_url = None, None
 
-        if discogs_url:
-            info.discogs_albumid = extract_discogs_id_regex(discogs_url)
-        if bandcamp_url:
-            info.bandcamp_album_id = bandcamp_url
-        if spotify_url:
-            info.spotify_album_id = MetadataSourcePlugin._get_id(
-                "album", spotify_url, spotify_id_regex
-            )
-        if deezer_url:
-            info.deezer_album_id = MetadataSourcePlugin._get_id(
-                "album", deezer_url, deezer_id_regex
-            )
-        if beatport_url:
-            info.beatport_album_id = MetadataSourcePlugin._get_id(
-                "album", beatport_url, beatport_id_regex
-            )
-        if tidal_url:
-            info.tidal_album_id = tidal_url.split("/")[-1]
+            all_url_targets = []
+            for url in release["url-relation-list"]:
+                all_url_targets.append(url["target"])
+                if fetch_discogs and url["type"] == "discogs":
+                    log.debug("Found link to Discogs release via MusicBrainz")
+                    discogs_url = url["target"]
+                if fetch_bandcamp and "bandcamp.com" in url["target"]:
+                    log.debug("Found link to Bandcamp release via MusicBrainz")
+                    bandcamp_url = url["target"]
+                if fetch_spotify and "spotify.com" in url["target"]:
+                    log.debug("Found link to Spotify album via MusicBrainz")
+                    spotify_url = url["target"]
+                if fetch_deezer and "deezer.com" in url["target"]:
+                    log.debug("Found link to Deezer album via MusicBrainz")
+                    deezer_url = url["target"]
+                if fetch_beatport and "beatport.com" in url["target"]:
+                    log.debug("Found link to Beatport release via MusicBrainz")
+                    beatport_url = url["target"]
+                if fetch_tidal and "tidal.com" in url["target"]:
+                    log.debug("Found link to Tidal release via MusicBrainz")
+                    tidal_url = url["target"]
+                if fetch_rym and "rateyourmusic.com" in url["target"]:
+                    log.debug("Found link to RYM release via MusicBrainz")
+                    rym_url = url["target"]
+                if fetch_genius and "genius.com" in url["target"]:
+                    log.debug("Found link to Genius release via MusicBrainz")
+                    genius_url = url["target"]
+
+            if discogs_url:
+                info.discogs_albumid = extract_discogs_id_regex(discogs_url)
+            if bandcamp_url:
+                info.bandcamp_album_id = bandcamp_url
+            if spotify_url:
+                info.spotify_album_id = MetadataSourcePlugin._get_id(
+                    "album", spotify_url, spotify_id_regex
+                )
+            if deezer_url:
+                info.deezer_album_id = MetadataSourcePlugin._get_id(
+                    "album", deezer_url, deezer_id_regex
+                )
+            if beatport_url:
+                info.beatport_album_id = MetadataSourcePlugin._get_id(
+                    "album", beatport_url, beatport_id_regex
+                )
+            if tidal_url:
+                info.tidal_album_id = tidal_url.split("/")[-1]
+            if rym_url:
+                info.rym_album_link = rym_url.split("rateyourmusic.com", 1)[-1]
+            if genius_url:
+                info.genius_album_link = genius_url.split("genius.com", 1)[-1]
+            
+            info.all_urls = all_url_targets
+
 
     extra_albumdatas = plugins.send("mb_album_extract", data=release)
     for extra_albumdata in extra_albumdatas:

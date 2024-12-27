@@ -6,6 +6,45 @@ Changelog goes here! Please add your entry to the bottom of one of the lists bel
 Unreleased
 ----------
 
+Beets now requires Python 3.9 or later since support for EOL Python 3.8 has
+been dropped.
+
+New features:
+
+Bug fixes:
+
+* :doc:`plugins/lyrics`: LRCLib will fallback to plain lyrics if synced lyrics
+  are not found and `synced` flag is set to `yes`.
+* Synchronise files included in the source distribution with what we used to
+  have before the introduction of Poetry.
+  :bug:`5531`
+  :bug:`5526`
+* :ref:`write-cmd`: Fix the issue where for certain files differences in
+  ``mb_artistid``, ``mb_albumartistid`` and ``albumtype`` fields are shown on
+  every attempt to write tags. Note: your music needs to be reimported with
+  ``beet import -LI`` or synchronised with ``beet mbsync`` in order to fix
+  this!
+  :bug:`5265`
+  :bug:`5371`
+  :bug:`4715`
+* :ref:`import-cmd`: Fix ``MemoryError`` and improve performance tagging large
+  albums by replacing ``munkres`` library with ``lap.lapjv``.
+  :bug:`5207`
+
+For packagers:
+
+* The minimum supported Python version is now 3.9.
+
+Other changes:
+
+* Release workflow: fix the issue where the new release tag is created for the
+  wrong (outdated) commit. Now the tag is created in the same workflow step
+  right after committing the version update.
+  :bug:`5539`
+
+2.2.0 (December 02, 2024)
+-------------------------
+
 New features:
 
 * :doc:`/plugins/substitute`: Allow the replacement string to use capture groups

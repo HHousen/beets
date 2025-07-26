@@ -12,13 +12,14 @@
 # The above copyright notice and this permission notice shall be
 # included in all copies or substantial portions of the Software.
 
-"""Searches for albums in the MusicBrainz database.
-"""
+"""Searches for albums in the MusicBrainz database."""
+
 from __future__ import annotations
 
 import re
 import traceback
 from collections import Counter
+from itertools import product
 from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple, cast
 from urllib.parse import urljoin
 
@@ -53,7 +54,7 @@ FIELDS_TO_MB_KEYS = {
 musicbrainzngs.set_useragent("beets", beets.__version__, "https://beets.io/")
 
 
-class MusicBrainzAPIError(util.HumanReadableException):
+class MusicBrainzAPIError(util.HumanReadableError):
     """An error while talking to MusicBrainz. The `query` field is the
     parameter to the action and may have any type.
     """
@@ -375,7 +376,6 @@ def track_info(
     for extra_trackdata in extra_trackdatas:
         info.update(extra_trackdata)
 
-    info.decode()
     return info
 
 
@@ -747,7 +747,6 @@ def album_info(release: Dict) -> beets.autotag.hooks.AlbumInfo:
     for extra_albumdata in extra_albumdatas:
         info.update(extra_albumdata)
 
-    info.decode()
     return info
 
 

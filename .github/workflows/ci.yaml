@@ -34,23 +34,45 @@ jobs:
         run: |
           sudo apt update
           sudo apt install ffmpeg gobject-introspection libgirepository1.0-dev
-          poetry install --extras replaygain
+          poetry install --extras=replaygain --extras=reflink
 
       - name: Install Python dependencies
-        run: poetry install --only=main,test
+        run: poetry install --only=main,test --extras=autobpm
 
-      - if: ${{ ! env.IS_MAIN_PYTHON }}
+      - if: ${{ env.IS_MAIN_PYTHON != 'true' }}
         name: Test without coverage
-        run: poe test --no-cov
+        run: poe test
 
-      - if: ${{ env.IS_MAIN_PYTHON }}
+      - if: ${{ env.IS_MAIN_PYTHON == 'true' }}
         name: Test with coverage
         uses: liskin/gh-problem-matcher-wrap@v3
         with:
           linters: pytest
-          run: poe test
+          run: poe test-with-coverage
 
-      - if: ${{ env.IS_MAIN_PYTHON }}
-        name: Upload code coverage
-        continue-on-error: true
-        run: poetry run codecov
+      - if: ${{ env.IS_MAIN_PYTHON == 'true' }}
+        name: Store the coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: .reports/coverage.xml
+
+  upload-coverage:
+    name: Upload coverage report
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get the coverage report
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-report
+
+      - name: Upload code coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.xml
+          use_oidc: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) }}

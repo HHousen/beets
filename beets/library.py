@@ -12,8 +12,9 @@
 # The above copyright notice and this permission notice shall be
 # included in all copies or substantial portions of the Software.
 
-"""The core data store and collection logic for beets.
-"""
+"""The core data store and collection logic for beets."""
+
+from __future__ import annotations
 
 import os
 import re
@@ -23,7 +24,9 @@ import sys
 import time
 import unicodedata
 from functools import cached_property
+from pathlib import Path
 
+import platformdirs
 from mediafile import MediaFile, UnreadableFileError
 
 import beets
@@ -32,6 +35,7 @@ from beets.dbcore import Results, types
 from beets.util import (
     MoveOperation,
     bytestring_path,
+    cached_classproperty,
     normpath,
     samefile,
     syspath,
@@ -308,11 +312,8 @@ class SmartArtistSort(dbcore.query.Sort):
         order = "ASC" if self.ascending else "DESC"
         field = "albumartist" if self.album else "artist"
         collate = "COLLATE NOCASE" if self.case_insensitive else ""
-        return (
-            "(CASE {0}_sort WHEN NULL THEN {0} "
-            'WHEN "" THEN {0} '
-            "ELSE {0}_sort END) {1} {2}"
-        ).format(field, collate, order)
+
+        return f"COALESCE(NULLIF({field}_sort, ''), {field}) {collate} {order}"
 
     def sort(self, objs):
         if self.album:
@@ -639,6 +640,27 @@ class Item(LibModel):
 
     # Cached album object. Read-only.
     __album = None
+
+    @cached_classproperty
+    def _relation(cls) -> type[Album]:
+        return Album
+
+    @cached_classproperty
+    def relation_join(cls) -> str:
+        """Return the FROM clause which includes related albums.
+
+        We need to use a LEFT JOIN here, otherwise items that are not part of
+        an album (e.g. singletons) would be left out.
+        """
+        return (
+            f"LEFT JOIN {cls._relation._table} "
+            f"ON {cls._table}.album_id = {cls._relation._table}.id"
+        )
+
+    @property
+    def filepath(self) -> Path | None:
+        """The path to the item's file as pathlib.Path."""
+        return Path(os.fsdecode(self.path)) if self.path else self.path
 
     @property
     def _cached_album(self):
@@ -1240,6 +1262,22 @@ class Album(LibModel):
 
     _format_config_key = "format_album"
 
+    @cached_classproperty
+    def _relation(cls) -> type[Item]:
+        return Item
+
+    @cached_classproperty
+    def relation_join(cls) -> str:
+        """Return FROM clause which joins on related album items.
+
+        Use LEFT join to select all albums, including those that do not have
+        any items.
+        """
+        return (
+            f"LEFT JOIN {cls._relation._table} "
+            f"ON {cls._table}.id = {cls._relation._table}.album_id"
+        )
+
     @classmethod
     def _getters(cls):
         # In addition to plugin-provided computed fields, also expose
@@ -1561,14 +1599,15 @@ class Library(dbcore.Database):
     def __init__(
         self,
         path="library.blb",
-        directory="~/Music",
+        directory: str | None = None,
         path_formats=((PF_KEY_DEFAULT, "$artist/$album/$track $title"),),
         replacements=None,
     ):
         timeout = beets.config["timeout"].as_number()
         super().__init__(path, timeout=timeout)
 
-        self.directory = bytestring_path(normpath(directory))
+        self.directory = normpath(directory or platformdirs.user_music_path())
+
         self.path_formats = path_formats
         self.replacements = replacements
 
@@ -1707,6 +1746,11 @@ class DefaultTemplateFunctions:
 
     _prefix = "tmpl_"
 
+    @cached_classproperty
+    def _func_names(cls) -> list[str]:
+        """Names of tmpl_* functions in this class."""
+        return [s for s in dir(cls) if s.startswith(cls._prefix)]
+
     def __init__(self, item=None, lib=None):
         """Parametrize the functions.
 
@@ -1737,6 +1781,11 @@ class DefaultTemplateFunctions:
     def tmpl_upper(s):
         """Convert a string to upper case."""
         return s.upper()
+
+    @staticmethod
+    def tmpl_capitalize(s):
+        """Converts to a capitalized string."""
+        return s.capitalize()
 
     @staticmethod
     def tmpl_title(s):
@@ -2004,11 +2053,3 @@ class DefaultTemplateFunctions:
             return trueval if trueval else self.item.formatted().get(field)
         else:
             return falseval
-
-
-# Get the name of tmpl_* functions in the above class.
-DefaultTemplateFunctions._func_names = [
-    s
-    for s in dir(DefaultTemplateFunctions)
-    if s.startswith(DefaultTemplateFunctions._prefix)
-]

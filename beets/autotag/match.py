@@ -16,15 +16,17 @@
 releases and tracks.
 """
 
+from __future__ import annotations
 
 import datetime
 import re
-from collections import namedtuple
+from enum import IntEnum
 from typing import (
     Any,
     Dict,
     Iterable,
     List,
+    NamedTuple,
     Optional,
     Sequence,
     Tuple,
@@ -46,7 +48,6 @@ from beets.autotag import (
 )
 from beets.library import Item
 from beets.util import plurality
-from beets.util.enumeration import OrderedEnum
 
 # Artist signals that indicate "various artists". These are used at the
 # album level to determine whether a given release is likely a VA
@@ -61,7 +62,7 @@ log = logging.getLogger("beets")
 # Recommendation enumeration.
 
 
-class Recommendation(OrderedEnum):
+class Recommendation(IntEnum):
     """Indicates a qualitative suggestion to the user about what should
     be done with a given match.
     """
@@ -76,7 +77,10 @@ class Recommendation(OrderedEnum):
 # consists of a list of possible candidates (i.e., AlbumInfo or TrackInfo
 # objects) and a recommendation value.
 
-Proposal = namedtuple("Proposal", ("candidates", "recommendation"))
+
+class Proposal(NamedTuple):
+    candidates: Sequence[AlbumMatch | TrackMatch]
+    recommendation: Recommendation
 
 
 # Primary matching functionality.
@@ -203,6 +207,10 @@ def track_distance(
     # Track ID.
     if item.mb_trackid:
         dist.add_expr("track_id", item.mb_trackid != track_info.track_id)
+
+    # Penalize mismatching disc numbers.
+    if track_info.medium and item.disc:
+        dist.add_expr("medium", item.disc != track_info.medium)
 
     # Plugins.
     dist.update(plugins.track_distance(item, track_info))
@@ -351,7 +359,7 @@ def match_by_id(items: Iterable[Item]):
 
 
 def _recommendation(
-    results: Sequence[Union[AlbumMatch, TrackMatch]],
+    results: Sequence[AlbumMatch | TrackMatch],
 ) -> Recommendation:
     """Given a sorted list of AlbumMatch or TrackMatch objects, return a
     recommendation based on the results' distances.

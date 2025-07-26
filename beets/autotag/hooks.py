@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import re
-from collections import namedtuple
 from functools import total_ordering
 from typing import (
     Any,
@@ -26,6 +25,7 @@ from typing import (
     Iterable,
     Iterator,
     List,
+    NamedTuple,
     Optional,
     Tuple,
     TypeVar,
@@ -39,7 +39,7 @@ from unidecode import unidecode
 from beets import config, logging, plugins
 from beets.autotag import mb
 from beets.library import Item
-from beets.util import as_string
+from beets.util import as_string, cached_classproperty
 
 log = logging.getLogger("beets")
 
@@ -168,42 +168,6 @@ class AlbumInfo(AttrDict):
         self.discogs_artistid = discogs_artistid
         self.update(kwargs)
 
-    # Work around a bug in python-musicbrainz-ngs that causes some
-    # strings to be bytes rather than Unicode.
-    # https://github.com/alastair/python-musicbrainz-ngs/issues/85
-    def decode(self, codec: str = "utf-8"):
-        """Ensure that all string attributes on this object, and the
-        constituent `TrackInfo` objects, are decoded to Unicode.
-        """
-        for fld in [
-            "album",
-            "artist",
-            "albumtype",
-            "label",
-            "barcode",
-            "artist_sort",
-            "catalognum",
-            "script",
-            "language",
-            "country",
-            "style",
-            "genre",
-            "albumstatus",
-            "albumdisambig",
-            "releasegroupdisambig",
-            "artist_credit",
-            "media",
-            "discogs_albumid",
-            "discogs_labelid",
-            "discogs_artistid",
-        ]:
-            value = getattr(self, fld)
-            if isinstance(value, bytes):
-                setattr(self, fld, value.decode(codec, "ignore"))
-
-        for track in self.tracks:
-            track.decode(codec)
-
     def copy(self) -> AlbumInfo:
         dupe = AlbumInfo([])
         dupe.update(self)
@@ -293,24 +257,6 @@ class TrackInfo(AttrDict):
         self.genre = genre
         self.album = album
         self.update(kwargs)
-
-    # As above, work around a bug in python-musicbrainz-ngs.
-    def decode(self, codec="utf-8"):
-        """Ensure that all string attributes on this object are decoded
-        to Unicode.
-        """
-        for fld in [
-            "title",
-            "artist",
-            "medium",
-            "artist_sort",
-            "disctitle",
-            "artist_credit",
-            "media",
-        ]:
-            value = getattr(self, fld)
-            if isinstance(value, bytes):
-                setattr(self, fld, value.decode(codec, "ignore"))
 
     def copy(self) -> TrackInfo:
         dupe = TrackInfo()
@@ -413,23 +359,6 @@ def string_dist(str1: Optional[str], str2: Optional[str]) -> float:
     return base_dist + penalty
 
 
-class LazyClassProperty:
-    """A decorator implementing a read-only property that is *lazy* in
-    the sense that the getter is only invoked once. Subsequent accesses
-    through *any* instance use the cached result.
-    """
-
-    def __init__(self, getter):
-        self.getter = getter
-        self.computed = False
-
-    def __get__(self, obj, owner):
-        if not self.computed:
-            self.value = self.getter(owner)
-            self.computed = True
-        return self.value
-
-
 @total_ordering
 class Distance:
     """Keeps track of multiple distance penalties. Provides a single
@@ -441,8 +370,8 @@ class Distance:
         self._penalties = {}
         self.tracks: Dict[TrackInfo, Distance] = {}
 
-    @LazyClassProperty
-    def _weights(cls) -> Dict[str, float]:  # noqa: N805
+    @cached_classproperty
+    def _weights(cls) -> Dict[str, float]:
         """A dictionary from keys to floating-point weights."""
         weights_view = config["match"]["distance_weights"]
         weights = {}
@@ -660,11 +589,18 @@ class Distance:
 
 # Structures that compose all the information for a candidate match.
 
-AlbumMatch = namedtuple(
-    "AlbumMatch", ["distance", "info", "mapping", "extra_items", "extra_tracks"]
-)
 
-TrackMatch = namedtuple("TrackMatch", ["distance", "info"])
+class AlbumMatch(NamedTuple):
+    distance: Distance
+    info: AlbumInfo
+    mapping: Dict[Item, TrackInfo]
+    extra_items: List[Item]
+    extra_tracks: List[TrackInfo]
+
+
+class TrackMatch(NamedTuple):
+    distance: Distance
+    info: TrackInfo
 
 
 # Aggregation of sources.

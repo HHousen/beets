@@ -493,6 +493,14 @@ def album_info(release: Dict) -> beets.autotag.hooks.AlbumInfo:
             ti.media = format
             ti.track_alt = track["number"]
 
+            instruments = set()
+            if track["recording"].get("artist-relation-list"):
+                for rel in track["recording"]["artist-relation-list"]:
+                    if rel["type"] == "instrument":
+                        if "attribute-list" in rel:
+                            instruments |= set(rel["attribute-list"])
+            ti.instruments = list(instruments)
+
             # Prefer track data, where present, over recording data.
             if track.get("title"):
                 ti.title = track["title"]

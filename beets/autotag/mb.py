@@ -371,6 +371,14 @@ def track_info(
     if arranger:
         info.arranger = ", ".join(arranger)
 
+    tag_list = recording.get("tag-list", [])
+    tags: Counter[str] = Counter()
+    for tagitem in tag_list:
+        tags[tagitem["name"]] += int(tagitem["count"])
+    info.mb_tags = "; ".join(
+        tag for tag, _count in sorted(tags.items(), key=lambda g: -g[1])
+    )
+
     # Supplementary fields provided by plugins
     extra_trackdatas = plugins.send("mb_track_extract", data=recording)
     for extra_trackdata in extra_trackdatas:
